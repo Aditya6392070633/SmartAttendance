@@ -1,66 +1,12 @@
-#depandanci install to start this project
-
 fastapi
 uvicorn
 deepface
-opencv-python
+opencv-python-headless
 sqlalchemy
 psycopg2-binary
 python-multipart
 python-dotenv
 pillow
-numpy 
-#end 
-
-
-#run cmd commends SmartAttendanceBackend
-cd C:\Users\Admin\Downloads\hitel\SmartAttendance\SmartAttendanceBackend
-venv310\Scripts\activate
-uvicorn main:app --reload --port 8000
-```
-
-✅ Success when you see:
-```
-INFO:  Application startup complete.
-INFO:  Uvicorn running on http://127.0.0.1:8000
-
-
-
-#end here
-#run cmd commends SmartAttendance
-cd C:\Users\Admin\Downloads\hitel\SmartAttendance\SmartAttendance
-npm run dev
-```
-
-✅ Success when you see:
-```
-VITE ready in ...ms
-➜  Local: http://localhost:5174/
-end here 
-
-
-#url to update data 
-Frontendhttp://localhost:5174
-Backendhttp://localhost:8000
-API Docshttp://localhost:8000/docs
-Studentshttp://localhost:8000/students/
-Attendancehttp://localhost:8000/attendance/today
-#end
-
-# commends for data check 
-Check All Students
-Invoke-RestMethod -Uri "http://localhost:8000/students/" -Method Get
-
-Check Today's Attendance
-Invoke-RestMethod -Uri "http://localhost:8000/attendance/today" -Method Get
-
-Check in Table Format (Nicely Formatted)
-
-# Students table
-Invoke-RestMethod -Uri "http://localhost:8000/students/" -Method Get | Format-Table id, name, roll, department
-
-# Attendance table
-Invoke-RestMethod -Uri "http://localhost:8000/attendance/today" -Method Get | Format-Table id, student_id, status, session_date, marked_at
-
-Quick One-liner — Present or Absent?
-Invoke-RestMethod -Uri "http://localhost:8000/attendance/today" -Method Get | Select-Object student_id, status, marked_at | Format-Table
+numpy
+tf-keras
+tensorflow
