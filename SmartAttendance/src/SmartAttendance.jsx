@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const API = "http://localhost:8000";
+const API = "https://smartattendancebackend-2dja.onrender.com";
 
 const ScanLine = () => (
   <div style={{
