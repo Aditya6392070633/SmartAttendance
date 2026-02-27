@@ -1,0 +1,5 @@
+SmartAttendanceBackend/venv310/
+SmartAttendanceBackend/__pycache__/
+SmartAttendanceBackend/.env
+SmartAttendance/node_modules/
+SmartAttendance/dist/
