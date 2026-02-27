@@ -7,6 +7,6 @@ psycopg2-binary
 python-multipart
 python-dotenv
 pillow
-numpy
+numpy==1.26.4
 tf-keras
-tensorflow
+tensorflow==2.15.0
