@@ -1,12 +1,10 @@
 fastapi
 uvicorn
-deepface
-opencv-python-headless
 sqlalchemy
 psycopg2-binary
 python-multipart
 python-dotenv
 pillow
-numpy==1.26.4
-tf-keras
-tensorflow==2.15.0
+numpy
+opencv-python-headless
+face-recognition
