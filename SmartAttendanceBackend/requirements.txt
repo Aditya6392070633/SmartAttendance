@@ -5,3 +5,5 @@ psycopg2-binary
 python-multipart
 python-dotenv
 pillow
+numpy
+opencv-python-headless
