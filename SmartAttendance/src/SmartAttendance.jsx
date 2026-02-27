@@ -26,7 +26,8 @@ const FaceGrid = ({ active, detected, scanning }) => {
       transform: "translate(-50%, -50%)",
       width: "160px", height: "190px",
       opacity: active ? 1 : 0.3,
-      transition: "all 0.4s ease"
+      transition: "all 0.4s ease",
+      zIndex: 2
     }}>
       {corners.map(c => (
         <div key={c} style={{
@@ -68,6 +69,93 @@ export default function SmartAttendance() {
   const [dots, setDots] = useState("");
   const [liveTime, setLiveTime] = useState(new Date());
   const [feedNoise, setFeedNoise] = useState(0);
+  const [cameraError, setCameraError] = useState(null);
+  const [cameraReady, setCameraReady] = useState(false);
+
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+
+  // ✅ Start webcam
+  const startCamera = async () => {
+    try {
+      setCameraError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setCameraReady(true);
+      }
+    } catch (err) {
+      console.error("Camera error:", err);
+      setCameraError("Camera access denied or not available");
+      setCameraReady(false);
+    }
+  };
+
+  // ✅ Stop webcam
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      setCameraReady(false);
+    }
+  };
+
+  // ✅ Capture photo and send to backend
+  const captureAndScan = async () => {
+    if (scanning) return;
+    if (!cameraReady || !videoRef.current) {
+      alert("Camera not ready. Please allow camera access.");
+      return;
+    }
+
+    setScanning(true);
+    setDetected(false);
+    setScanResult(null);
+    setCurrentScan(null);
+
+    setTimeout(() => setDetected(true), 800);
+
+    try {
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      canvas.width = 640;
+      canvas.height = 480;
+      canvas.getContext("2d").drawImage(video, 0, 0, 640, 480);
+
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.9));
+      const formData = new FormData();
+      formData.append("face_image", blob, "scan.jpg");
+
+      const res = await fetch(`${API}/attendance/scan`, {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.student) {
+        setScanResult({ type: "success", student: { name: data.student, roll: data.roll } });
+        setStudents(prev => prev.map(s =>
+          s.roll === data.roll
+            ? { ...s, status: "present", time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }
+            : s
+        ));
+        await fetchTodayAttendance();
+      } else {
+        setScanResult({ type: "error", message: data.detail || "Face not recognized" });
+      }
+    } catch (err) {
+      console.error("Scan error:", err);
+      setScanResult({ type: "error", message: "Scan failed. Check backend connection." });
+    } finally {
+      setScanning(false);
+      setTimeout(() => setDetected(false), 2000);
+    }
+  };
 
   // ✅ Fetch real students from backend
   const fetchStudents = async () => {
@@ -102,7 +190,9 @@ export default function SmartAttendance() {
           return {
             ...s,
             status: record.status,
-            time: new Date(record.marked_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            time: record.marked_at
+              ? new Date(record.marked_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+              : "--:--"
           };
         }
         return s;
@@ -114,6 +204,8 @@ export default function SmartAttendance() {
 
   useEffect(() => {
     fetchStudents().then(() => fetchTodayAttendance());
+    startCamera();
+    return () => stopCamera();
   }, []);
 
   useEffect(() => {
@@ -143,45 +235,6 @@ export default function SmartAttendance() {
     } catch (err) {
       console.error("Failed to mark absent:", err);
     }
-  };
-
-  // ✅ Simulate scan (replace with real webcam capture later)
-  const startScan = () => {
-    if (scanning) return;
-    setScanning(true);
-    setDetected(false);
-    setScanResult(null);
-    setCurrentScan(null);
-
-    setTimeout(() => setDetected(true), 1400);
-
-    setTimeout(async () => {
-      const unmarked = students_.filter(s => s.status === null);
-      if (unmarked.length === 0) {
-        setScanResult({ type: "done", message: "All students marked!" });
-        setScanning(false);
-        setDetected(false);
-        return;
-      }
-
-      const student = unmarked[Math.floor(Math.random() * unmarked.length)];
-      setCurrentScan(student);
-
-      // ✅ Mark present via API
-      try {
-        await fetch(`${API}/attendance/mark-absent/${student.id}`, { method: "POST" });
-      } catch (err) {
-        // If already marked, ignore
-      }
-
-      setScanResult({ type: "success", student });
-      setStudents(prev => prev.map(s =>
-        s.id === student.id
-          ? { ...s, status: "present", time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }
-          : s
-      ));
-      setScanning(false);
-    }, 3000);
   };
 
   // ✅ Reset — reload from API
@@ -271,17 +324,20 @@ export default function SmartAttendance() {
             borderBottom: "1px solid rgba(0,255,136,0.1)",
             overflow: "hidden"
           }}>
+            {/* Grid overlay */}
             <div style={{
               position: "absolute", inset: 0,
               backgroundImage: `radial-gradient(ellipse at ${30 + feedNoise * 40}% ${30 + feedNoise * 40}%, rgba(0,255,136,0.03) 0%, transparent 60%)`,
-              transition: "background 0.2s"
+              transition: "background 0.2s",
+              zIndex: 1, pointerEvents: "none"
             }} />
             {[...Array(5)].map((_, i) => (
               <div key={i} style={{
                 position: "absolute", top: 0, bottom: 0,
                 left: `${(i + 1) * 16.66}%`,
                 width: "1px",
-                background: "rgba(0,255,136,0.04)"
+                background: "rgba(0,255,136,0.04)",
+                zIndex: 1, pointerEvents: "none"
               }} />
             ))}
             {[...Array(4)].map((_, i) => (
@@ -289,25 +345,66 @@ export default function SmartAttendance() {
                 position: "absolute", left: 0, right: 0,
                 top: `${(i + 1) * 20}%`,
                 height: "1px",
-                background: "rgba(0,255,136,0.04)"
+                background: "rgba(0,255,136,0.04)",
+                zIndex: 1, pointerEvents: "none"
               }} />
             ))}
+
+            {/* Real webcam video */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                position: "absolute", inset: 0,
+                width: "100%", height: "100%",
+                objectFit: "cover",
+                opacity: cameraReady ? 0.85 : 0,
+                transform: "scaleX(-1)",
+                zIndex: 0
+              }}
+            />
+
+            {/* Hidden canvas for capture */}
+            <canvas ref={canvasRef} style={{ display: "none" }} />
+
+            {/* Camera error */}
+            {cameraError && (
+              <div style={{
+                position: "absolute", inset: 0, zIndex: 2,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexDirection: "column", gap: "8px"
+              }}>
+                <span style={{ fontSize: "10px", color: "#ff6666", letterSpacing: "1px", textAlign: "center", padding: "0 16px" }}>
+                  ⚠ {cameraError}
+                </span>
+                <button onClick={startCamera} style={{
+                  background: "rgba(0,255,136,0.1)", border: "1px solid rgba(0,255,136,0.3)",
+                  color: "#00ff88", fontSize: "9px", letterSpacing: "2px", padding: "6px 12px",
+                  cursor: "pointer", fontFamily: "'Courier New', monospace"
+                }}>
+                  RETRY CAMERA
+                </button>
+              </div>
+            )}
 
             {scanning && <ScanLine />}
             <FaceGrid active={scanning || detected} detected={detected} scanning={scanning} />
 
             <div style={{
               position: "absolute", bottom: "10px", left: "10px", right: "10px",
-              display: "flex", justifyContent: "space-between", alignItems: "flex-end"
+              display: "flex", justifyContent: "space-between", alignItems: "flex-end",
+              zIndex: 3
             }}>
               <div style={{
                 fontSize: "9px", letterSpacing: "2px",
-                color: scanning ? "#00ff88" : "rgba(200,216,192,0.3)"
+                color: scanning ? "#00ff88" : cameraReady ? "rgba(0,255,136,0.6)" : "rgba(200,216,192,0.3)"
               }}>
-                {scanning ? `SCANNING${dots}` : detected ? "FACE LOCKED" : "CAMERA LIVE"}
+                {scanning ? `SCANNING${dots}` : detected ? "FACE LOCKED" : cameraReady ? "CAMERA LIVE" : "NO CAMERA"}
               </div>
               <div style={{ fontSize: "9px", letterSpacing: "1px", color: "rgba(200,216,192,0.25)" }}>
-                REC ● {Math.floor(feedNoise * 900 + 100)}ms
+                {cameraReady ? "REC ●" : "OFFLINE"} {Math.floor(feedNoise * 900 + 100)}ms
               </div>
             </div>
 
@@ -316,12 +413,21 @@ export default function SmartAttendance() {
                 position: "absolute", top: "10px", left: "10px", right: "10px",
                 background: "rgba(0,255,136,0.1)",
                 border: "1px solid rgba(0,255,136,0.4)",
-                padding: "8px 12px",
-                fontSize: "11px", letterSpacing: "1px",
-                animation: "pop 0.3s ease-out",
-                color: "#00ff88"
+                padding: "8px 12px", fontSize: "11px", letterSpacing: "1px",
+                animation: "pop 0.3s ease-out", color: "#00ff88", zIndex: 4
               }}>
                 ✓ MATCH: {scanResult.student.name.toUpperCase()}
+              </div>
+            )}
+            {scanResult?.type === "error" && (
+              <div style={{
+                position: "absolute", top: "10px", left: "10px", right: "10px",
+                background: "rgba(255,68,68,0.1)",
+                border: "1px solid rgba(255,68,68,0.4)",
+                padding: "8px 12px", fontSize: "11px", letterSpacing: "1px",
+                animation: "pop 0.3s ease-out", color: "#ff6666", zIndex: 4
+              }}>
+                ✗ {scanResult.message?.toUpperCase()}
               </div>
             )}
           </div>
@@ -329,7 +435,7 @@ export default function SmartAttendance() {
           {/* Scan Button */}
           <div style={{ padding: "24px", flexShrink: 0 }}>
             <button
-              onClick={startScan}
+              onClick={captureAndScan}
               disabled={scanning || loading}
               style={{
                 width: "100%", padding: "16px",
@@ -382,19 +488,14 @@ export default function SmartAttendance() {
           </div>
 
           <div style={{ padding: "0 24px", marginTop: "auto", paddingBottom: "16px" }}>
-            <button
-              onClick={reset}
-              className="action-btn"
-              style={{
-                width: "100%", padding: "10px",
-                background: "transparent",
-                border: "1px solid rgba(200,216,192,0.15)",
-                color: "rgba(200,216,192,0.5)",
-                fontSize: "10px", letterSpacing: "3px",
-                cursor: "pointer", fontFamily: "'Courier New', monospace",
-                transition: "all 0.2s"
-              }}
-            >
+            <button onClick={reset} className="action-btn" style={{
+              width: "100%", padding: "10px",
+              background: "transparent",
+              border: "1px solid rgba(200,216,192,0.15)",
+              color: "rgba(200,216,192,0.5)",
+              fontSize: "10px", letterSpacing: "3px",
+              cursor: "pointer", fontFamily: "'Courier New', monospace", transition: "all 0.2s"
+            }}>
               ↺  RESET SESSION
             </button>
           </div>
@@ -402,16 +503,12 @@ export default function SmartAttendance() {
 
         {/* Right Panel */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {/* Tabs */}
           <div style={{
             borderBottom: "1px solid rgba(0,255,136,0.1)",
             display: "flex", padding: "0 16px",
             background: "rgba(0,255,136,0.01)"
           }}>
-            {[
-              { key: "scan", label: "ATTENDANCE" },
-              { key: "log", label: "ACTIVITY LOG" },
-            ].map(t => (
+            {[{ key: "scan", label: "ATTENDANCE" }, { key: "log", label: "ACTIVITY LOG" }].map(t => (
               <button key={t.key} className="tab-btn" onClick={() => setActiveTab(t.key)} style={{
                 color: activeTab === t.key ? "#00ff88" : "rgba(200,216,192,0.35)",
                 borderBottom: activeTab === t.key ? "2px solid #00ff88" : "2px solid transparent",
@@ -436,7 +533,6 @@ export default function SmartAttendance() {
                 <span>TIME</span><span>STATUS</span><span>ACTION</span>
               </div>
 
-              {/* ✅ Loading state */}
               {loading ? (
                 <div style={{ padding: "40px", textAlign: "center", color: "rgba(0,255,136,0.4)", fontSize: "11px", letterSpacing: "2px" }}>
                   <div style={{ width: "20px", height: "20px", border: "2px solid rgba(0,255,136,0.3)", borderTop: "2px solid #00ff88", borderRadius: "50%", animation: "spin 1s linear infinite", margin: "0 auto 12px" }} />
@@ -445,9 +541,7 @@ export default function SmartAttendance() {
               ) : students_.length === 0 ? (
                 <div style={{ padding: "40px", textAlign: "center", color: "rgba(200,216,192,0.2)", fontSize: "11px", letterSpacing: "2px" }}>
                   NO STUDENTS REGISTERED YET<br />
-                  <span style={{ fontSize: "9px", marginTop: "8px", display: "block" }}>
-                    Go to http://localhost:8000/docs to register students
-                  </span>
+                  <span style={{ fontSize: "9px", marginTop: "8px", display: "block" }}>Go to {API}/docs to register students</span>
                 </div>
               ) : (
                 students_.map((s, i) => (
@@ -456,10 +550,8 @@ export default function SmartAttendance() {
                     gridTemplateColumns: "48px 1fr 100px 80px 90px 80px",
                     padding: "14px 24px",
                     borderBottom: "1px solid rgba(255,255,255,0.03)",
-                    alignItems: "center",
-                    transition: "all 0.2s",
-                    background: currentScan?.id === s.id ? "rgba(0,255,136,0.06)" : "transparent",
-                    animation: currentScan?.id === s.id ? "fadeIn 0.4s ease" : "none"
+                    alignItems: "center", transition: "all 0.2s",
+                    background: currentScan?.id === s.id ? "rgba(0,255,136,0.06)" : "transparent"
                   }}>
                     <span style={{ fontSize: "11px", color: "rgba(200,216,192,0.25)" }}>{String(i + 1).padStart(2, "0")}</span>
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -493,15 +585,11 @@ export default function SmartAttendance() {
                     <div>
                       {s.status === null && (
                         <button onClick={() => markAbsent(s.id)} className="action-btn" style={{
-                          background: "transparent",
-                          border: "1px solid rgba(255,68,68,0.3)",
-                          color: "rgba(255,100,100,0.6)",
-                          fontSize: "9px", letterSpacing: "1px",
+                          background: "transparent", border: "1px solid rgba(255,68,68,0.3)",
+                          color: "rgba(255,100,100,0.6)", fontSize: "9px", letterSpacing: "1px",
                           padding: "4px 8px", cursor: "pointer",
                           fontFamily: "'Courier New', monospace", transition: "all 0.2s"
-                        }}>
-                          ABSENT
-                        </button>
+                        }}>ABSENT</button>
                       )}
                     </div>
                   </div>
@@ -532,7 +620,6 @@ export default function SmartAttendance() {
             </div>
           )}
 
-          {/* Bottom info bar */}
           <div style={{
             borderTop: "1px solid rgba(0,255,136,0.08)",
             padding: "10px 24px", display: "flex", justifyContent: "space-between",
