@@ -19,7 +19,8 @@ async def register_student(
     if existing:
         raise HTTPException(status_code=400, detail="Student already registered")
 
-    face_path = save_face_image(roll, face_image)
+  contents = await face_image.read()
+face_path = save_face_image(contents, roll)
 
     student = Student(name=name, roll=roll, department=department, face_image_path=face_path)
     db.add(student)
