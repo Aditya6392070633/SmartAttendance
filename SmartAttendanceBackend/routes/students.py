@@ -31,13 +31,23 @@ async def register_student(
 def get_all_students(db: Session = Depends(get_db)):
     return db.query(Student).all()
 
+@router.delete("/{student_id}")
+def delete_student(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    if student.face_image_path and os.path.exists(student.face_image_path):
+        os.remove(student.face_image_path)
+    db.delete(student)
+    db.commit()
+    return {"message": f"Student {student.name} deleted successfully"}
+
 @router.put("/{student_id}", response_model=StudentOut)
 async def update_student(
     student_id: int,
     name: str = Form(None),
     roll: str = Form(None),
     department: str = Form(None),
-    face_image: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
     student = db.query(Student).filter(Student.id == student_id).first()
@@ -49,22 +59,6 @@ async def update_student(
         student.roll = roll
     if department:
         student.department = department
-    if face_image and face_image.filename:
-        face_bytes = await face_image.read()
-        face_path = save_face_image(face_bytes, student.roll)
-        student.face_image_path = face_path
     db.commit()
     db.refresh(student)
     return student
-
-@router.delete("/{student_id}")
-def delete_student(student_id: int, db: Session = Depends(get_db)):
-    student = db.query(Student).filter(Student.id == student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-    # Delete face image if exists
-    if student.face_image_path and os.path.exists(student.face_image_path):
-        os.remove(student.face_image_path)
-    db.delete(student)
-    db.commit()
-    return {"message": f"Student {student.name} deleted successfully"}
